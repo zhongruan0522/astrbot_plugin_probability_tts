@@ -1,10 +1,9 @@
 name: TTS概率语音插件
 display_name: TTS概率语音插件
-author: TTS Plugin Developer
+author: zhongruan
 description: 基于OpenAI TTS API规范的概率语音回复插件，支持智能分段和区域排除功能
 version: 1.0.0
-repository: https://github.com/example/astrbot_plugin_tts
-license: MIT
+repository: https://github.com/zhongruan0522/astrbot_plugin_probability_tts
 python_requires: ">=3.8"
 astrbot_version: ">=3.4.0"
 tags:

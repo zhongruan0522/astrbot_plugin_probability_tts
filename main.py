@@ -23,7 +23,8 @@ class TTSProbabilityPlugin(Star):
         "/help", "/new", "/plugin", "/t2i", "/tts", "/sid", "/op", "/wl",
         "/dashboard_update", "/alter_cmd", "/llm", "/provider", "/model",
         "/ls", "/groupnew", "/switch", "/rename", "/del", "/reset",
-        "/history", "/persona", "/tool", "/key", "/websearch", "/ttson", "/ttsoff"
+        "/history", "/persona", "/tool", "/key", "/websearch", 
+        "/ttson", "/ttsoff", "/ttsreload", "/ttsstatus"
     }
 
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -44,6 +45,9 @@ class TTSProbabilityPlugin(Star):
         self.current_message_count = 0
         self.voice_trigger_numbers = set()
         self._generate_voice_trigger_numbers()
+        
+        # 临时文件管理
+        self.temp_files = []  # 跟踪生成的临时文件
         
         logger.info(f"TTS概率语音插件已初始化 - 概率: {self.probability}, 周期长度: {self.cycle_length}, 状态: {'启用' if self.enabled else '禁用'}")
 
@@ -92,6 +96,22 @@ class TTSProbabilityPlugin(Star):
                 async with aiofiles.open(temp_path, "wb") as f:
                     await f.write(response.content)
                 
+                # 记录临时文件用于后续清理
+                self.temp_files.append(temp_path)
+                
+                # 清理旧的临时文件（保留最近的10个）
+                if len(self.temp_files) > 10:
+                    old_files = self.temp_files[:-10]
+                    self.temp_files = self.temp_files[-10:]
+                    
+                    for old_file in old_files:
+                        try:
+                            if os.path.exists(old_file):
+                                os.unlink(old_file)
+                                logger.debug(f"清理临时音频文件: {old_file}")
+                        except Exception as e:
+                            logger.warning(f"清理临时文件失败 {old_file}: {e}")
+                
                 logger.info(f"TTS音频文件生成成功: {temp_path}")
                 return temp_path
                 
@@ -124,6 +144,54 @@ class TTSProbabilityPlugin(Star):
         except Exception as e:
             logger.error(f"文本分段失败: {e}")
             return [text] if text else []
+
+    def _reload_config(self):
+        """重新加载配置"""
+        self.api_key = str(self.config.get("api_key", ""))
+        self.model_id = str(self.config.get("model_id", "tts-1"))
+        self.voice_id = str(self.config.get("voice_id", "nova"))
+        old_probability = self.probability
+        old_cycle = self.cycle_length
+        self.probability = float(self.config.get("probability", 0.3))
+        self.cycle_length = int(self.config.get("cycle_length", 100))
+        self.segmentation_regex = str(self.config.get("segmentation_regex", "[。？！]"))
+        self.exclude_regex = str(self.config.get("exclude_regex", "\\(.*?\\)|\\（.*?\\）"))
+        self.enabled = bool(self.config.get("enabled", True))
+        
+        # 如果概率或周期发生变化，重新生成触发点
+        if old_probability != self.probability or old_cycle != self.cycle_length:
+            self._generate_voice_trigger_numbers()
+            logger.info("配置已更新，重新生成语音触发点")
+
+    @filter.command("ttsreload")
+    async def reload_config(self, event: AstrMessageEvent):
+        """重新加载TTS配置"""
+        self._reload_config()
+        yield event.plain_result(f"🔄 TTS配置已重载\n概率: {self.probability}\n周期: {self.cycle_length}\n状态: {'启用' if self.enabled else '禁用'}")
+
+    @filter.command("ttsstatus")
+    async def show_status(self, event: AstrMessageEvent):
+        """显示TTS插件状态"""
+        status_text = f"""📊 TTS概率语音插件状态
+
+🔧 配置信息:
+• 状态: {'✅ 启用' if self.enabled else '❌ 禁用'}
+• 概率: {self.probability * 100:.1f}%
+• 周期长度: {self.cycle_length}
+• 音色: {self.voice_id}
+• 模型: {self.model_id}
+
+📈 运行状态:
+• 当前消息计数: {self.current_message_count}
+• 本周期触发点: {len(self.voice_trigger_numbers)}个
+• API密钥: {'已配置' if self.api_key else '❌ 未配置'}
+• 临时文件数: {len(self.temp_files) if hasattr(self, 'temp_files') else 0}
+
+💡 可用命令:
+/ttson - 开启语音  /ttsoff - 关闭语音
+/ttsreload - 重载配置  /ttsstatus - 查看状态"""
+        
+        yield event.plain_result(status_text)
 
     @filter.command("ttson")
     async def enable_tts(self, event: AstrMessageEvent):
@@ -220,4 +288,16 @@ class TTSProbabilityPlugin(Star):
 
     async def terminate(self):
         """插件卸载时的清理工作"""
-        logger.info("TTS概率语音插件已卸载")
+        # 清理所有临时文件
+        if hasattr(self, 'temp_files'):
+            for temp_file in self.temp_files:
+                try:
+                    if os.path.exists(temp_file):
+                        os.unlink(temp_file)
+                        logger.debug(f"清理临时音频文件: {temp_file}")
+                except Exception as e:
+                    logger.warning(f"清理临时文件失败 {temp_file}: {e}")
+            
+            self.temp_files.clear()
+        
+        logger.info("TTS概率语音插件已卸载，临时文件已清理")

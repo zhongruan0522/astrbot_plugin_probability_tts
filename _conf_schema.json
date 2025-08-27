@@ -2,7 +2,7 @@
   "api_key": {
     "description": "TTS API密钥",
     "type": "string",
-    "hint": "请输入您的TTS API密钥",
+    "hint": "请输入您的TTS API密钥，可前往https://api.sylus-evolx.cn/注册",
     "obvious_hint": true,
     "default": ""
   },
