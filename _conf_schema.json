@@ -1,0 +1,51 @@
+{
+  "api_key": {
+    "description": "TTS API密钥",
+    "type": "string",
+    "hint": "请输入您的TTS API密钥",
+    "obvious_hint": true,
+    "default": ""
+  },
+  "model_id": {
+    "description": "TTS模型ID",
+    "type": "string",
+    "hint": "例如：tts-1, tts-1-hd",
+    "default": "tts-1"
+  },
+  "voice_id": {
+    "description": "音色ID",
+    "type": "string",
+    "hint": "例如：alloy, echo, fable, onyx, nova, shimmer",
+    "default": "nova"
+  },
+  "probability": {
+    "description": "语音回复的概率 (0.0 - 1.0)",
+    "type": "float",
+    "hint": "例如 0.5 表示 50% 的概率触发语音回复",
+    "default": 0.3
+  },
+  "cycle_length": {
+    "description": "随机周期长度 (消息数量)",
+    "type": "int",
+    "hint": "每隔多少条消息重新生成随机触发点",
+    "default": 100
+  },
+  "segmentation_regex": {
+    "description": "分段正则表达式",
+    "type": "string",
+    "hint": "用于将长文本分段的正则表达式，例如：[。？！] 会按句号、问号、感叹号分段",
+    "default": "[。？！]"
+  },
+  "exclude_regex": {
+    "description": "不转语音区域的正则表达式",
+    "type": "string",
+    "hint": "匹配的内容不会转为语音，例如：\\(.*?\\)|\\（.*?\\） 表示括号内容不转语音",
+    "default": "\\(.*?\\)|\\（.*?\\）"
+  },
+  "enabled": {
+    "description": "是否启用概率语音功能",
+    "type": "bool",
+    "hint": "可以通过 /ttson 和 /ttsoff 命令切换",
+    "default": true
+  }
+}
