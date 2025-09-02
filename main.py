@@ -209,6 +209,24 @@ class TTSProbabilityPlugin(Star):
         self.config.save_config()
         yield event.plain_result("❌ TTS概率语音功能已关闭")
 
+    @filter.command("ttsid")
+    async def change_voice_id(self, event: AstrMessageEvent, voice_id: str):
+        """切换TTS音色
+        
+        Args:
+            voice_id(str): 音色ID
+        """
+        if not voice_id.strip():
+            yield event.plain_result("❌ 请提供音色ID\n用法: /ttsid <音色ID>")
+            return
+        
+        # 更新音色ID
+        self.voice_id = voice_id.strip()
+        self.config["voice_id"] = self.voice_id
+        self.config.save_config()
+        
+        yield event.plain_result(f"✅ 音色已切换为: {self.voice_id}")
+
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent):
         """拦截消息并处理TTS转换"""
