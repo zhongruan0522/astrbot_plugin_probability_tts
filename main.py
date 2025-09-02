@@ -189,6 +189,7 @@ class TTSProbabilityPlugin(Star):
 
 💡 可用命令:
 /ttson - 开启语音  /ttsoff - 关闭语音
+/ttsid <音色ID> - 切换音色
 /ttsreload - 重载配置  /ttsstatus - 查看状态"""
         
         yield event.plain_result(status_text)
