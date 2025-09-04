@@ -1,322 +1,236 @@
+import os
+import re
+import json
+import random
+import aiohttp
+import asyncio
+from pathlib import Path
+
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
-from astrbot.api import logger, AstrBotConfig
-from astrbot.api.message_components import Record, Plain
-import random
-import asyncio
-import re
-import httpx
-import aiofiles
-import os
-import tempfile
-from typing import List, Tuple, Optional
-import json
+from astrbot.api import logger
+import astrbot.api.message_components as Comp
 
-@register("tts_probability_plugin", "TTS Plugin Developer", "TTS概率语音插件", "1.0.0", "https://github.com/example/astrbot_plugin_tts")
-class TTSProbabilityPlugin(Star):
-    
-    # TTS API配置（用户不可见）
-    TTS_API_BASE_URL = "http://154.201.91.65:3000/v1"
-    
-    # 排除指令列表
-    EXCLUDED_COMMANDS = {
-        "/help", "/new", "/plugin", "/t2i", "/tts", "/sid", "/op", "/wl",
-        "/dashboard_update", "/alter_cmd", "/llm", "/provider", "/model",
-        "/ls", "/groupnew", "/switch", "/rename", "/del", "/reset",
-        "/history", "/persona", "/tool", "/key", "/websearch", 
-        "/ttson", "/ttsoff", "/ttsreload", "/ttsstatus"
-    }
 
-    def __init__(self, context: Context, config: AstrBotConfig):
+@register("probability_voice", "zhongruan", "基于概率的语音转换插件", "1.0.0")
+class ProbabilityVoicePlugin(Star):
+    def __init__(self, context: Context, config):
         super().__init__(context)
         self.config = config
         
-        # 用户配置参数
-        self.api_key = str(self.config.get("api_key", ""))
-        self.model_id = str(self.config.get("model_id", "tts-1"))
-        self.voice_id = str(self.config.get("voice_id", "nova"))
-        self.probability = float(self.config.get("probability", 0.3))
-        self.cycle_length = int(self.config.get("cycle_length", 100))
-        self.segmentation_regex = str(self.config.get("segmentation_regex", "[。？！]"))
-        self.exclude_regex = str(self.config.get("exclude_regex", "\\(.*?\\)|\\（.*?\\）"))
-        self.enabled = bool(self.config.get("enabled", True))
+        # 创建数据目录
+        self.data_dir = os.path.join("data", "probability_voice")
+        os.makedirs(self.data_dir, exist_ok=True)
         
-        # 概率触发状态
-        self.current_message_count = 0
-        self.voice_trigger_numbers = set()
-        self._generate_voice_trigger_numbers()
+        # TTS API配置
+        self.tts_url = "http://154.201.91.65:3000/v1/audio/speech"
         
-        # 临时文件管理
-        self.temp_files = []  # 跟踪生成的临时文件
+        # 初始化消息计数
+        self.message_count = self.config.get("message_count", 0)
         
-        logger.info(f"TTS概率语音插件已初始化 - 概率: {self.probability}, 周期长度: {self.cycle_length}, 状态: {'启用' if self.enabled else '禁用'}")
-
-    def _generate_voice_trigger_numbers(self):
-        """生成语音触发点"""
-        self.voice_trigger_numbers.clear()
-        if self.probability <= 0:
-            return
-            
-        num_to_trigger = int(self.cycle_length * self.probability)
-        num_to_trigger = min(num_to_trigger, self.cycle_length)
-        
-        if num_to_trigger > 0:
-            self.voice_trigger_numbers = set(random.sample(range(1, self.cycle_length + 1), num_to_trigger))
-        
-        logger.info(f"生成新的语音触发点: {sorted(list(self.voice_trigger_numbers))}")
-
-    async def _call_tts_api(self, text: str) -> Optional[str]:
-        """调用TTS API生成语音"""
-        if not self.api_key:
-            logger.warning("TTS API密钥未配置")
-            return None
-        
-        url = f"{self.TTS_API_BASE_URL}/audio/speech"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        data = {
-            "model": self.model_id,
-            "input": text,
-            "voice": self.voice_id
-        }
-        
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(url, headers=headers, json=data)
-                response.raise_for_status()
-                
-                # 保存音频文件到临时目录
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-                temp_path = temp_file.name
-                temp_file.close()
-                
-                async with aiofiles.open(temp_path, "wb") as f:
-                    await f.write(response.content)
-                
-                # 记录临时文件用于后续清理
-                self.temp_files.append(temp_path)
-                
-                # 清理旧的临时文件（保留最近的10个）
-                if len(self.temp_files) > 10:
-                    old_files = self.temp_files[:-10]
-                    self.temp_files = self.temp_files[-10:]
-                    
-                    for old_file in old_files:
-                        try:
-                            if os.path.exists(old_file):
-                                os.unlink(old_file)
-                                logger.debug(f"清理临时音频文件: {old_file}")
-                        except Exception as e:
-                            logger.warning(f"清理临时文件失败 {old_file}: {e}")
-                
-                logger.info(f"TTS音频文件生成成功: {temp_path}")
-                return temp_path
-                
-        except Exception as e:
-            logger.error(f"TTS API调用失败: {e}")
-            return None
-
-    def _extract_excluded_content(self, text: str) -> Tuple[str, List[str]]:
-        """提取需要排除的内容"""
-        if not self.exclude_regex:
-            return text, []
-        
-        try:
-            excluded_matches = re.findall(self.exclude_regex, text)
-            remaining_text = re.sub(self.exclude_regex, "", text).strip()
-            return remaining_text, excluded_matches
-        except Exception as e:
-            logger.error(f"正则表达式处理失败: {e}")
-            return text, []
-
-    def _segment_text(self, text: str) -> List[str]:
-        """按正则表达式分段文本"""
-        if not text or not self.segmentation_regex:
-            return [text] if text else []
-        
-        try:
-            segments = re.split(self.segmentation_regex, text)
-            segments = [seg.strip() for seg in segments if seg.strip()]
-            return segments
-        except Exception as e:
-            logger.error(f"文本分段失败: {e}")
-            return [text] if text else []
-
-    def _reload_config(self):
-        """重新加载配置"""
-        self.api_key = str(self.config.get("api_key", ""))
-        self.model_id = str(self.config.get("model_id", "tts-1"))
-        self.voice_id = str(self.config.get("voice_id", "nova"))
-        old_probability = self.probability
-        old_cycle = self.cycle_length
-        self.probability = float(self.config.get("probability", 0.3))
-        self.cycle_length = int(self.config.get("cycle_length", 100))
-        self.segmentation_regex = str(self.config.get("segmentation_regex", "[。？！]"))
-        self.exclude_regex = str(self.config.get("exclude_regex", "\\(.*?\\)|\\（.*?\\）"))
-        self.enabled = bool(self.config.get("enabled", True))
-        
-        # 如果概率或周期发生变化，重新生成触发点
-        if old_probability != self.probability or old_cycle != self.cycle_length:
-            self._generate_voice_trigger_numbers()
-            logger.info("配置已更新，重新生成语音触发点")
-
-    @filter.command("ttsreload")
-    async def reload_config(self, event: AstrMessageEvent):
-        """重新加载TTS配置"""
-        self._reload_config()
-        yield event.plain_result(f"🔄 TTS配置已重载\n概率: {self.probability}\n周期: {self.cycle_length}\n状态: {'启用' if self.enabled else '禁用'}")
-
-    @filter.command("ttsstatus")
-    async def show_status(self, event: AstrMessageEvent):
-        """显示TTS插件状态"""
-        status_text = f"""📊 TTS概率语音插件状态
-
-🔧 配置信息:
-• 状态: {'✅ 启用' if self.enabled else '❌ 禁用'}
-• 概率: {self.probability * 100:.1f}%
-• 周期长度: {self.cycle_length}
-• 音色: {self.voice_id}
-• 模型: {self.model_id}
-
-📈 运行状态:
-• 当前消息计数: {self.current_message_count}
-• 本周期触发点: {len(self.voice_trigger_numbers)}个
-• API密钥: {'已配置' if self.api_key else '❌ 未配置'}
-• 临时文件数: {len(self.temp_files) if hasattr(self, 'temp_files') else 0}
-
-💡 可用命令:
-/ttson - 开启语音  /ttsoff - 关闭语音
-/ttsid <音色ID> - 切换音色
-/ttsreload - 重载配置  /ttsstatus - 查看状态"""
-        
-        yield event.plain_result(status_text)
-
-    @filter.command("ttson")
-    async def enable_tts(self, event: AstrMessageEvent):
-        """开启概率语音功能"""
-        self.enabled = True
-        self.config["enabled"] = True
-        self.config.save_config()
-        yield event.plain_result("✅ TTS概率语音功能已开启")
-
-    @filter.command("ttsoff") 
-    async def disable_tts(self, event: AstrMessageEvent):
-        """关闭概率语音功能"""
-        self.enabled = False
-        self.config["enabled"] = False
-        self.config.save_config()
-        yield event.plain_result("❌ TTS概率语音功能已关闭")
-
-    @filter.command("ttsid")
-    async def change_voice_id(self, event: AstrMessageEvent, voice_id: str):
-        """切换TTS音色
-        
-        Args:
-            voice_id(str): 音色ID
-        """
-        if not voice_id.strip():
-            yield event.plain_result("❌ 请提供音色ID\n用法: /ttsid <音色ID>")
-            return
-        
-        # 更新音色ID
-        self.voice_id = voice_id.strip()
-        self.config["voice_id"] = self.voice_id
-        self.config.save_config()
-        
-        yield event.plain_result(f"✅ 音色已切换为: {self.voice_id}")
-
-    @filter.on_decorating_result()
-    async def on_decorating_result(self, event: AstrMessageEvent):
-        """拦截消息并处理TTS转换"""
-        if not self.enabled:
-            return
-        
-        # 检查是否为命令消息
-        is_command = False
-        if event.get_messages() and isinstance(event.get_messages()[0], Plain):
-            first_message_text = event.get_messages()[0].text
-            if first_message_text.startswith('/') or first_message_text.lower() in self.EXCLUDED_COMMANDS:
-                is_command = True
-        
-        if is_command:
-            logger.debug(f"跳过命令消息的语音转换: {event.message_str}")
-            return
-        
-        result = event.get_result()
-        if not result or not result.chain:
-            return
-        
-        # 提取纯文本内容
-        text_to_speak = ""
-        is_plain_text_response = False
-        
-        for component in result.chain:
-            if isinstance(component, Plain):
-                is_plain_text_response = True
-                text_to_speak += component.text
-        
-        if not is_plain_text_response or not text_to_speak.strip():
-            return
-        
-        # 消息计数
-        self.current_message_count += 1
-        logger.debug(f"当前消息计数: {self.current_message_count}")
-        
-        # 检查是否触发语音
-        if self.current_message_count in self.voice_trigger_numbers:
-            logger.info(f"消息 #{self.current_message_count} 触发语音转换")
-            
-            # 处理文本
-            remaining_text, excluded_content = self._extract_excluded_content(text_to_speak)
-            
-            new_chain = []
-            
-            # 添加排除的内容作为文本消息
-            for excluded in excluded_content:
-                if excluded.strip():
-                    new_chain.append(Plain(excluded))
-            
-            # 处理剩余文本进行语音转换
-            if remaining_text.strip():
-                segments = self._segment_text(remaining_text)
-                
-                for segment in segments:
-                    if segment.strip():
-                        audio_path = await self._call_tts_api(segment)
-                        if audio_path:
-                            new_chain.append(Record(file=audio_path, url=audio_path))
-                        else:
-                            # TTS失败时发送原文本
-                            new_chain.append(Plain(segment))
-            
-            # 如果成功生成了语音，替换消息链
-            if new_chain:
-                result.chain = new_chain
-                logger.info(f"成功转换为语音消息，包含 {len(new_chain)} 个组件")
-        else:
-            logger.debug(f"消息 #{self.current_message_count} 未触发语音转换")
-        
-        # 重置周期
-        if self.current_message_count >= self.cycle_length:
-            logger.info(f"周期结束，重置消息计数并生成新的触发点")
-            self.current_message_count = 0
-            self._generate_voice_trigger_numbers()
+        logger.info("ProbabilityVoice插件初始化完成")
 
     async def terminate(self):
-        """插件卸载时的清理工作"""
-        # 清理所有临时文件
-        if hasattr(self, 'temp_files'):
-            for temp_file in self.temp_files:
-                try:
-                    if os.path.exists(temp_file):
-                        os.unlink(temp_file)
-                        logger.debug(f"清理临时音频文件: {temp_file}")
-                except Exception as e:
-                    logger.warning(f"清理临时文件失败 {temp_file}: {e}")
+        """插件卸载时调用"""
+        # 保存消息计数
+        self.config["message_count"] = self.message_count
+        logger.info("ProbabilityVoice插件已卸载")
+
+    @filter.command("ttsid")
+    async def set_voice_id(self, event: AstrMessageEvent, voice_id: str):
+        """切换音色ID"""
+        self.config["voice_id"] = voice_id
+        yield event.plain_result(f"音色ID已切换为: {voice_id}")
+
+    @filter.command("ttsswitch")
+    async def toggle_tts(self, event: AstrMessageEvent, switch: str):
+        """开启/关闭TTS功能"""
+        if switch.lower() in ["on", "开启", "启用"]:
+            self.config["tts_enabled"] = True
+            yield event.plain_result("TTS功能已开启")
+        elif switch.lower() in ["off", "关闭", "禁用"]:
+            self.config["tts_enabled"] = False
+            yield event.plain_result("TTS功能已关闭")
+        else:
+            yield event.plain_result("参数错误，请使用 on/off 或 开启/关闭")
+
+    @filter.event_message_type(filter.EventMessageType.ALL)
+    async def on_message(self, event: AstrMessageEvent):
+        """处理所有消息"""
+        try:
+            # 检查TTS是否启用
+            if not self.config.get("tts_enabled", True):
+                return
             
-            self.temp_files.clear()
+            # 获取消息内容
+            message_str = event.message_str
+            if not message_str:
+                return
+            
+            # 过滤思考内容
+            filtered_content = self._filter_thinking_content(message_str)
+            if not filtered_content:
+                return
+            
+            # 概率判断
+            should_send_voice = self._check_probability()
+            
+            # 分段处理
+            segments = self._segment_content(filtered_content)
+            
+            # 发送消息
+            if should_send_voice:
+                await self._send_voice_messages(event, segments)
+            else:
+                await self._send_text_messages(event, segments)
+            
+        except Exception as e:
+            logger.error(f"处理消息时出错: {e}")
+
+    def _filter_thinking_content(self, content: str) -> str:
+        """过滤思考内容"""
+        # 移除 <thinking> 和 </thinking> 标签及其内容
+        pattern = r'<thinking>.*?</thinking>'
+        filtered = re.sub(pattern, '', content, flags=re.DOTALL)
         
-        logger.info("TTS概率语音插件已卸载，临时文件已清理")
+        # 移除可能的空行和多余空格
+        filtered = '\n'.join(line.strip() for line in filtered.split('\n') if line.strip())
+        
+        return filtered.strip()
+
+    def _check_probability(self) -> bool:
+        """检查是否应该发送语音"""
+        # 更新消息计数
+        self.message_count += 1
+        self.config["message_count"] = self.message_count
+        
+        # 获取概率配置
+        percentage = self.config.get("probability_percentage", 90)
+        total = self.config.get("probability_total", 10)
+        
+        # 计算当前消息在概率总数中的位置
+        current_position = self.message_count % total
+        
+        # 计算应该发送语音的消息数量
+        voice_count = int(total * percentage / 100)
+        
+        # 如果当前消息位置在应该发送语音的范围内
+        return current_position < voice_count
+
+    def _segment_content(self, content: str) -> list:
+        """分段处理内容"""
+        segments = []
+        
+        # 使用正则表达式匹配句子结束符
+        # 句号、感叹号、问号（包括中文和英文）
+        sentence_pattern = r'[^。！？.!?]*[。！？.!?]'
+        
+        # 查找所有匹配的句子
+        sentences = re.findall(sentence_pattern, content)
+        
+        # 处理括号内容
+        bracket_pattern = r'（[^）]*）|\([^)]*\)'
+        bracket_contents = re.findall(bracket_pattern, content)
+        
+        # 按原始顺序组合
+        segments = []
+        sentence_index = 0
+        bracket_index = 0
+        pos = 0
+        
+        while pos < len(content):
+            # 检查是否是括号内容
+            bracket_match = re.search(bracket_pattern, content[pos:])
+            sentence_match = re.search(sentence_pattern, content[pos:])
+            
+            if bracket_match and (not sentence_match or bracket_match.start() < sentence_match.start()):
+                # 处理括号内容
+                segments.append({
+                    'content': bracket_match.group(),
+                    'type': 'text',
+                    'position': pos + bracket_match.start()
+                })
+                pos += bracket_match.end()
+            elif sentence_match:
+                # 处理句子
+                segments.append({
+                    'content': sentence_match.group().strip(),
+                    'type': 'voice',
+                    'position': pos + sentence_match.start()
+                })
+                pos += sentence_match.end()
+            else:
+                # 处理剩余内容
+                remaining = content[pos:].strip()
+                if remaining:
+                    segments.append({
+                        'content': remaining,
+                        'type': 'text',
+                        'position': pos
+                    })
+                break
+        
+        # 按位置排序
+        segments.sort(key=lambda x: x['position'])
+        
+        return segments
+
+    async def _send_voice_messages(self, event: AstrMessageEvent, segments: list):
+        """发送语音消息"""
+        for segment in segments:
+            if segment['type'] == 'voice':
+                # 生成语音
+                audio_path = await self._generate_tts(segment['content'])
+                if audio_path:
+                    # 发送语音
+                    yield event.chain_result([Comp.Record(file=audio_path)])
+            else:
+                # 发送文本
+                yield event.plain_result(segment['content'])
+            
+            # 添加延迟，避免发送过快
+            await asyncio.sleep(0.5)
+
+    async def _send_text_messages(self, event: AstrMessageEvent, segments: list):
+        """发送文本消息"""
+        for segment in segments:
+            yield event.plain_result(segment['content'])
+            await asyncio.sleep(0.3)
+
+    async def _generate_tts(self, text: str) -> str:
+        """生成TTS语音"""
+        try:
+            # 准备请求数据
+            headers = {
+                "Authorization": f"Bearer {self.config.get('api_key', '')}",
+                "Content-Type": "application/json"
+            }
+            
+            data = {
+                "model": self.config.get("model_name", "tts-1"),
+                "input": text,
+                "voice": self.config.get("voice_id", "alloy"),
+                "response_format": "mp3"
+            }
+            
+            # 发送请求
+            async with aiohttp.ClientSession() as session:
+                async with session.post(self.tts_url, headers=headers, json=data) as response:
+                    if response.status == 200:
+                        # 保存音频文件
+                        audio_path = os.path.join(self.data_dir, f"tts_{self.message_count}_{random.randint(1000, 9999)}.mp3")
+                        
+                        with open(audio_path, 'wb') as f:
+                            async for chunk in response.content.iter_chunked(8192):
+                                f.write(chunk)
+                        
+                        logger.info(f"TTS生成成功: {audio_path}")
+                        return audio_path
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"TTS请求失败: {response.status} - {error_text}")
+                        return None
+                        
+        except Exception as e:
+            logger.error(f"生成TTS时出错: {e}")
+            return None

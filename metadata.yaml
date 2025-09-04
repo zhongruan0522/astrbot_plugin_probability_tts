@@ -1,14 +1,5 @@
-name: TTS概率语音插件
-display_name: TTS概率语音插件
+name: probability_voice
+desc: 基于概率的语音转换插件，支持TTS语音合成、分段处理和智能过滤
+version: v1.0.0
 author: zhongruan
-description: 基于OpenAI TTS API规范的概率语音回复插件，支持智能分段和区域排除功能
-version: 2.0.0
-repository: https://github.com/zhongruan0522/astrbot_plugin_probability_tts
-python_requires: ">=3.8"
-astrbot_version: ">=3.4.0"
-tags:
-  - tts
-  - voice
-  - 语音
-  - 概率回复
-  - 文本转语音
+repo: https://github.com/zhongruan0522/astrbot_plugin_probability_tts

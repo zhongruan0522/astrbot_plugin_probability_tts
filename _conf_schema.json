@@ -1,51 +1,43 @@
 {
-  "api_key": {
-    "description": "TTS API密钥",
+  "model_name": {
+    "description": "TTS模型名称",
     "type": "string",
-    "hint": "请输入您的TTS API密钥，可前往https://api.sylus-evolx.cn/注册",
-    "obvious_hint": true,
-    "default": ""
+    "default": "tts-1",
+    "hint": "OpenAI兼容的TTS模型名称"
   },
-  "model_id": {
-    "description": "TTS模型ID",
+  "api_key": {
+    "description": "API密钥",
     "type": "string",
-    "hint": "例如：tts-1, tts-1-hd",
-    "default": "tts-1"
+    "hint": "TTS服务的API密钥"
   },
   "voice_id": {
     "description": "音色ID",
     "type": "string",
-    "hint": "例如：alloy, echo, fable, onyx, nova, shimmer",
-    "default": "nova"
+    "default": "alloy",
+    "hint": "语音合成的音色ID"
   },
-  "probability": {
-    "description": "语音回复的概率 (0.0 - 1.0)",
-    "type": "float",
-    "hint": "例如 0.5 表示 50% 的概率触发语音回复",
-    "default": 0.3
-  },
-  "cycle_length": {
-    "description": "随机周期长度 (消息数量)",
+  "probability_percentage": {
+    "description": "语音发送概率",
     "type": "int",
-    "hint": "每隔多少条消息重新生成随机触发点",
-    "default": 100
+    "default": 90,
+    "hint": "发送语音的概率百分比(0-100)"
   },
-  "segmentation_regex": {
-    "description": "分段正则表达式",
-    "type": "string",
-    "hint": "用于将长文本分段的正则表达式，例如：[。？！] 会按句号、问号、感叹号分段",
-    "default": "[。？！]"
+  "probability_total": {
+    "description": "概率总数",
+    "type": "int",
+    "default": 10,
+    "hint": "用于概率计算的总数"
   },
-  "exclude_regex": {
-    "description": "不转语音区域的正则表达式",
-    "type": "string",
-    "hint": "匹配的内容不会转为语音，例如：\\(.*?\\)|\\（.*?\\） 表示括号内容不转语音",
-    "default": "\\(.*?\\)|\\（.*?\\）"
-  },
-  "enabled": {
-    "description": "是否启用概率语音功能",
+  "tts_enabled": {
+    "description": "TTS总开关",
     "type": "bool",
-    "hint": "可以通过 /ttson 和 /ttsoff 命令切换",
-    "default": true
+    "default": true,
+    "hint": "是否启用TTS功能"
+  },
+  "message_count": {
+    "description": "消息计数",
+    "type": "int",
+    "default": 0,
+    "hint": "当前消息计数，用于概率计算"
   }
 }
