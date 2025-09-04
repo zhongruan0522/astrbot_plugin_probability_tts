@@ -54,6 +54,41 @@ class ProbabilityVoicePlugin(Star):
         else:
             yield event.plain_result("参数错误，请使用 on/off 或 开启/关闭")
 
+    @filter.command("segmentpattern")
+    async def set_segment_pattern(self, event: AstrMessageEvent, pattern: str):
+        """设置分段正则表达式"""
+        try:
+            # 测试正则表达式是否有效
+            re.compile(pattern)
+            self.config["segment_pattern"] = pattern
+            yield event.plain_result(f"分段正则表达式已更新为: {pattern}")
+        except re.error:
+            yield event.plain_result("无效的正则表达式")
+
+    @filter.command("thinkingkeywords")
+    async def add_thinking_keyword(self, event: AstrMessageEvent, action: str, keyword: str = None):
+        """管理思考链关键词"""
+        keywords = self.config.get("thinking_keywords", ["<thinking>", "</thinking>", "<思考>", "</思考>"])
+        
+        if action.lower() in ["add", "添加", "增加"]:
+            if keyword and keyword not in keywords:
+                keywords.append(keyword)
+                self.config["thinking_keywords"] = keywords
+                yield event.plain_result(f"已添加思考链关键词: {keyword}")
+            else:
+                yield event.plain_result("关键词已存在或未提供关键词")
+        elif action.lower() in ["remove", "删除", "移除"]:
+            if keyword and keyword in keywords:
+                keywords.remove(keyword)
+                self.config["thinking_keywords"] = keywords
+                yield event.plain_result(f"已删除思考链关键词: {keyword}")
+            else:
+                yield event.plain_result("关键词不存在或未提供关键词")
+        elif action.lower() in ["list", "列表", "查看"]:
+            yield event.plain_result(f"当前思考链关键词: {', '.join(keywords)}")
+        else:
+            yield event.plain_result("参数错误，使用: add/remove/list <关键词>")
+
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent):
         """处理所有消息"""
@@ -89,14 +124,26 @@ class ProbabilityVoicePlugin(Star):
 
     def _filter_thinking_content(self, content: str) -> str:
         """过滤思考内容"""
-        # 移除 <thinking> 和 </thinking> 标签及其内容
-        pattern = r'<thinking>.*?</thinking>'
-        filtered = re.sub(pattern, '', content, flags=re.DOTALL)
+        # 获取配置的关键词
+        thinking_keywords = self.config.get("thinking_keywords", ["<thinking>", "</thinking>", "<思考>", "</思考>"])
+        
+        # 对每个关键词进行过滤
+        filtered_content = content
+        for keyword in thinking_keywords:
+            # 如果是开始标签，过滤到对应的结束标签
+            if keyword.startswith("<") and not keyword.startswith("</"):
+                end_tag = keyword.replace("<", "</")
+                pattern = f'{keyword}.*?{end_tag}'
+                filtered_content = re.sub(pattern, '', filtered_content, flags=re.DOTALL)
+            # 如果是结束标签，单独过滤（防止没有开始标签的情况）
+            elif keyword.startswith("</"):
+                pattern = f'{keyword}'
+                filtered_content = re.sub(pattern, '', filtered_content)
         
         # 移除可能的空行和多余空格
-        filtered = '\n'.join(line.strip() for line in filtered.split('\n') if line.strip())
+        filtered_content = '\n'.join(line.strip() for line in filtered_content.split('\n') if line.strip())
         
-        return filtered.strip()
+        return filtered_content.strip()
 
     def _check_probability(self) -> bool:
         """检查是否应该发送语音"""
@@ -121,9 +168,11 @@ class ProbabilityVoicePlugin(Star):
         """分段处理内容"""
         segments = []
         
+        # 获取配置的分段正则表达式
+        segment_pattern = self.config.get("segment_pattern", "[。！？.!?]")
+        
         # 使用正则表达式匹配句子结束符
-        # 句号、感叹号、问号（包括中文和英文）
-        sentence_pattern = r'[^。！？.!?]*[。！？.!?]'
+        sentence_pattern = f'[^{segment_pattern}]*[{segment_pattern}]'
         
         # 查找所有匹配的句子
         sentences = re.findall(sentence_pattern, content)

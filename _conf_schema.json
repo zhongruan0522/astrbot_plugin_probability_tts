@@ -39,5 +39,17 @@
     "type": "int",
     "default": 0,
     "hint": "当前消息计数，用于概率计算"
+  },
+  "segment_pattern": {
+    "description": "分段正则表达式",
+    "type": "string",
+    "default": "[。！？.!?]",
+    "hint": "用于分段的标点符号正则表达式"
+  },
+  "thinking_keywords": {
+    "description": "思考链关键词",
+    "type": "list",
+    "default": ["<thinking>", "</thinking>", "<思考>", "</思考>"],
+    "hint": "需要过滤的思考链标签关键词"
   }
 }
